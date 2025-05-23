@@ -51,21 +51,27 @@ architecture behav of fmh_framebuffer_testbench is
 		end loop;
 	end procedure wait_for_ticks;
 	
-	procedure host_write (addr: in natural;
-		data : in std_logic_vector) is
-	begin
-		wait until rising_edge(clock);
+    procedure host_write (
+    	signal clock         : in std_logic;
+    	signal slave_write   : out std_logic;
+    	signal slave_address : out std_logic_vector;
+    	signal slave_writedata : out std_logic_vector;
+    	addr  : in natural;
+    	data  : in std_logic_vector
+    ) is
+    begin
+    	wait until rising_edge(clock);
+    
+    	slave_write <= '1';
+    	slave_address <= std_logic_vector(to_unsigned(addr, slave_address'length));
+    	slave_writedata <= data;
+    
+    	wait until rising_edge(clock);
+    	slave_write <= '0';
+    
+    	wait until rising_edge(clock);
+    end procedure;
 
-		slave_write <= '1';
-		slave_writedata <= data;
-		slave_address <= std_logic_vector(to_unsigned(addr, slave_address'length));
-	
-		wait until rising_edge(clock);
-
-		slave_write <= '0';
-
-		wait until rising_edge(clock);
-	end procedure host_write;
 
 	begin
 	my_framebuffer : entity work.fmh_framebuffer
@@ -217,34 +223,33 @@ architecture behav of fmh_framebuffer_testbench is
 		end if;
 	end process;
 	
-	-- main test process
-	process
-	begin
-		reset <= '1';
-		slave_read <= '0';
-		slave_write <= '0';
-		slave_writedata <= (others => '0');
-		slave_address <= (others => '0');
-		
-		wait until rising_edge(clock);
-		
-		reset <= '0';
-		wait until rising_edge(clock);
+    process
+    begin
+    	reset <= '1';
+    	slave_read <= '0';
+    	slave_write <= '0';
+    	slave_writedata <= (others => '0');
+    	slave_address <= (others => '0');
+    
+    	wait until rising_edge(clock);
+    	reset <= '0';
+    	wait until rising_edge(clock);
+    
+    	host_write(clock, slave_write, slave_address, slave_writedata, 8, std_logic_vector(resize(frame_width, 32))); -- frame width
+    	host_write(clock, slave_write, slave_address, slave_writedata, 9, std_logic_vector(resize(frame_height, 32))); -- frame height
+    	host_write(clock, slave_write, slave_address, slave_writedata, 4, std_logic_vector(buffer_base_address)); -- base address
+    	host_write(clock, slave_write, slave_address, slave_writedata, 0, X"00000003"); -- go and enable irq
+    
+    	for i in 0 to 1 loop
+    		wait until slave_irq = '1';
+    		assert false report "completed a frame" severity note;
+    		host_write(clock, slave_write, slave_address, slave_writedata, 2, X"00000001"); -- clear irq
+    	end loop;
+    
+    	wait_for_ticks(2);
+    	assert false report "end of test" severity note;
+    	test_finished := true;
+    	wait;
+    end process;
 
- 		host_write(8, std_logic_vector(resize(frame_width, 32))); -- frame width
- 		host_write(9, std_logic_vector(resize(frame_height, 32))); -- frame height
-		host_write(4, std_logic_vector(buffer_base_address)); -- base address
-		host_write(0, X"00000003"); -- go and enable irq
-
-		for i in 0 to 1 loop
-			wait until slave_irq = '1';
-			assert false report "completed a frame" severity note;
-			host_write(2, X"00000001"); -- clear irq
-		end loop;
-		
-		wait_for_ticks(2);
-		assert false report "end of test" severity note;
-		test_finished := true;
-		wait;
-	end process;
 end behav;
